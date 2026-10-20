@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""livehtml — a throwaway static web server with live reload.
+
+    livehtml --root DIR [--port N]
+
+Made for the Neovim HTML preview (<leader>hp). It serves DIR over real HTTP on
+127.0.0.1, which is the whole point: relative <link>, <script>, <img> and
+fetch() all resolve exactly like they would in a real browser, with no
+file:// restrictions.
+
+Every HTML response gets a tiny client injected that listens on /__live; the
+server watches the tree and pushes a reload the moment a file changes, so
+saving in the editor refreshes the page — CSS, JS and images included.
+
+Prints "LIVEHTML PORT <n>" on stdout as soon as it is listening, so the editor
+can learn the port (we ask for port 0 = "pick one for me").
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import threading
+import time
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+SNIPPET = b"""<script>
+(() => {
+  const es = new EventSource('/__live');
+  es.onmessage = (e) => { if (e.data === 'reload') location.reload(); };
+})();
+</script>
+"""
+
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+
+
+class Watcher(threading.Thread):
+    """Polls mtimes and wakes the SSE clients up whenever the tree changes."""
+
+    def __init__(self, root):
+        super().__init__(daemon=True)
+        self.root = root
+        self.cond = threading.Condition()
+        self.stamp = 0
+
+    def snapshot(self):
+        out = {}
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [
+                d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")
+            ]
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                try:
+                    out[path] = os.stat(path).st_mtime_ns
+                except OSError:
+                    pass
+        return out
+
+    def run(self):
+        state = self.snapshot()
+        while True:
+            time.sleep(0.35)
+            current = self.snapshot()
+            if current != state:
+                state = current
+                with self.cond:
+                    self.stamp += 1
+                    self.cond.notify_all()
+
+    def current(self):
+        with self.cond:
+            return self.stamp
+
+    def wait(self, since, timeout=20.0):
+        with self.cond:
+            if self.stamp == since:
+                self.cond.wait(timeout)
+            return self.stamp
+
+
+WATCHER = None  # created in main()
+
+
+class Handler(SimpleHTTPRequestHandler):
+    server_version = "livehtml"
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/__live":
+            return self.serve_events()
+        page = self.page_for(path)
+        if page is not None:
+            return self.serve_page(page)
+        return super().do_GET()
+
+    # -- helpers ---------------------------------------------------------
+    def page_for(self, urlpath):
+        """The HTML file this URL resolves to, or None."""
+        target = self.translate_path(urlpath)
+        if os.path.isdir(target):
+            for index in ("index.html", "index.htm"):
+                candidate = os.path.join(target, index)
+                if os.path.isfile(candidate):
+                    return candidate
+            return None
+        if target.endswith((".html", ".htm")) and os.path.isfile(target):
+            return target
+        return None
+
+    def serve_page(self, path):
+        try:
+            with open(path, "rb") as handle:
+                body = handle.read()
+        except OSError:
+            return self.send_error(404, "Cannot read file")
+
+        lowered = body.lower()
+        cut = lowered.rfind(b"</body>")
+        if cut != -1:
+            body = body[:cut] + SNIPPET + body[cut:]
+        else:
+            body = body + SNIPPET
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def serve_events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+        # Start from the current stamp: only *new* changes reload the page,
+        # otherwise connecting would trigger an endless reload loop.
+        stamp = WATCHER.current()
+        try:
+            self.wfile.write(b": connected\n\n")
+            self.wfile.flush()
+            while True:
+                latest = WATCHER.wait(stamp)
+                if latest != stamp:
+                    stamp = latest
+                    self.wfile.write(b"data: reload\n\n")
+                else:
+                    self.wfile.write(b": ping\n\n")  # heartbeat, keeps it warm
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s\n" % (fmt % args))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="static server with live reload")
+    parser.add_argument("--root", default=".")
+    parser.add_argument("--port", type=int, default=0)
+    args = parser.parse_args()
+
+    root = os.path.abspath(os.path.expanduser(args.root))
+    if not os.path.isdir(root):
+        sys.stderr.write("livehtml: no such directory: %s\n" % root)
+        return 2
+
+    global WATCHER
+    WATCHER = Watcher(root)
+    WATCHER.start()
+
+    def handler(*a, **kw):
+        return Handler(*a, directory=root, **kw)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    port = httpd.server_address[1]
+
+    # The editor parses these two lines.
+    print("LIVEHTML PORT %d" % port, flush=True)
+    print("LIVEHTML ROOT %s" % root, flush=True)
+
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

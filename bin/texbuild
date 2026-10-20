@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# texbuild — a tiny latexmk stand-in for VimTeX's "generic" compiler.
+#
+# Usage: texbuild <file.tex>
+#
+# Picks an engine (from $TEX_ENGINE or a "% !TEX program = ..." magic comment,
+# defaulting to pdflatex), runs it as many times as needed, and handles
+# bibtex / biber / makeindex. Writes a .pdf with SyncTeX info next to the file.
+set -u
+
+tex="${1:-}"
+if [ -z "$tex" ]; then
+  echo "usage: texbuild <file.tex>" >&2
+  exit 2
+fi
+# tolerate a quoted argument
+tex="${tex%\"}"
+tex="${tex#\"}"
+[ -f "$tex" ] || { echo "texbuild: no such file: $tex" >&2; exit 2; }
+
+dir="$(cd -- "$(dirname -- "$tex")" && pwd)"
+base="$(basename -- "$tex")"
+base="${base%.tex}"
+cd -- "$dir" || exit 2
+
+# ---- engine selection -------------------------------------------------------
+engine="${TEX_ENGINE:-}"
+if [ -z "$engine" ]; then
+  engine="$(sed -n 's/^[[:space:]]*%[[:space:]]*![[:space:]]*TEX[[:space:]]*program[[:space:]]*=[[:space:]]*\([A-Za-z][A-Za-z0-9_-]*\).*/\1/p' "$base.tex" 2>/dev/null | head -n1)"
+fi
+[ -n "$engine" ] || engine=pdflatex
+command -v "$engine" >/dev/null 2>&1 || engine=pdflatex
+command -v "$engine" >/dev/null 2>&1 || { echo "texbuild: no LaTeX engine found" >&2; exit 3; }
+
+export max_print_line=1000
+
+run() { "$engine" -interaction=nonstopmode -synctex=1 -file-line-error "$base.tex" >/dev/null 2>&1; }
+
+needs_rerun() {
+  [ -f "$base.log" ] || return 1
+  grep -qE "Rerun to get|Please rerun|Please \(re\)run|Rerun LaTeX|undefined references|may have changed|Label\(s\) may have changed|No file .*\.(toc|out|lof|lot)" "$base.log"
+}
+
+# ---- build ------------------------------------------------------------------
+run
+
+# bibliography
+if [ -f "$base.bcf" ] && command -v biber >/dev/null 2>&1; then
+  biber "$base" >/dev/null 2>&1
+  run
+elif [ -f "$base.aux" ] && grep -q '\\bibdata' "$base.aux" 2>/dev/null && command -v bibtex >/dev/null 2>&1; then
+  bibtex "$base" >/dev/null 2>&1
+  run
+fi
+
+# index
+if [ -s "$base.idx" ] && command -v makeindex >/dev/null 2>&1; then
+  makeindex "$base.idx" >/dev/null 2>&1
+  run
+fi
+
+# re-run until the log settles
+for _ in 1 2 3 4; do
+  needs_rerun || break
+  run
+done
+
+if [ -f "$base.pdf" ]; then
+  exit 0
+fi
+
+echo "texbuild: no PDF produced (see ${base}.log)" >&2
+exit 1

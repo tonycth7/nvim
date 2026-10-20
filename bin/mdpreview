@@ -1,0 +1,40 @@
+#!/bin/sh
+# mdpreview — open a URL in a *minimal* preview window.
+#
+# Purpose: give markdown-preview.nvim (g:mkdp_browser) a chrome-less window
+# with no tabs, no search bar, no URL bar — just the rendered page, so it can
+# sit next to Neovim as a side pane.
+#
+# Order of preference:
+#   1. qutebrowser  (tab-less, statusbar-less, undecorated)
+#   2. firefox      (kiosk = fullscreen, no UI at all)
+#   3. xdg-open     (last resort: the user's default browser)
+#
+# Usage: mdpreview <url>
+set -u
+
+url="${1:-}"
+[ -n "$url" ] || exit 0
+
+# qutebrowser (v3.x) has no --no-raise flag; --target window already opens a
+# separate window and the plugin closes it again on MarkdownPreviewStop.
+if command -v qutebrowser >/dev/null 2>&1; then
+  # NB: qutebrowser's -s takes TWO arguments: `-s OPTION VALUE`.
+  # Writing `-s option=value` makes the parser eat the next flag as the value
+  # and treat "option=value" as the URL (i.e. a search) instead.
+  if qutebrowser \
+      --target window \
+      -s tabs.show never \
+      -s statusbar.show never \
+      -s window.hide_decoration true \
+      -s scrolling.bar never \
+      "$url"; then
+    exit 0
+  fi
+fi
+
+if command -v firefox >/dev/null 2>&1; then
+  exec firefox --kiosk "$url"
+fi
+
+exec xdg-open "$url"
