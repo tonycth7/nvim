@@ -7,6 +7,11 @@
 #                            :checkhealth config)
 #    ./setup.sh --no-plugins skip the plugin step (packages + scripts only)
 #    ./setup.sh --help
+#    ./setup.sh clone        clone https://github.com/tonycth7/nvim.git into
+#                            ~/.config/nvim and run the installer from there
+#
+#    One-liner on any fresh computer (needs internet, git, package manager):
+#      sh -c "$(curl -fsSL https://raw.githubusercontent.com/tonycth7/nvim/main/setup.sh)" clone
 #
 #  What it does, in order:
 #    1. finds the tools this config shells out to (the table below)
@@ -21,7 +26,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Remote repo used by the clone mode. Override with NVIM_CONFIG_REPO.
+REPO_URL="${NVIM_CONFIG_REPO:-https://github.com/tonycth7/nvim.git}"
 BIN_DIR="${HOME}/.local/bin"
 MODE="install"
 DO_PLUGINS=1
@@ -31,12 +37,24 @@ for arg in "$@"; do
   --check | -c) MODE="check" ;;
   --no-plugins) DO_PLUGINS=0 ;;
   -h | --help)
-    sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    echo "usage: $0 [--check | -c] [--no-plugins] [--help] [clone]"
+    echo "  --check | -c          only report; change nothing (same as :checkhealth config)"
+    echo "  --no-plugins          skip the plugin step (packages + scripts only)"
+    echo "  --help                print this help"
+    echo "  clone                 clone this repo into ~/.config/nvim and install"
+    echo "  clone (one-liner)     sh -c \"$(curl -fsSL https://raw.githubusercontent.com/tonycth7/nvim/main/setup.sh)\" clone"
+    echo "  clone (manual)        git clone https://github.com/tonycth7/nvim.git ~/.config/nvim"
+    echo
+    echo "Safe to re-run: every step is a no-op when already done."
     exit 0
     ;;
   *)
-    echo "unknown option: $arg (try --help)" >&2
-    exit 2
+    if [ "$arg" = "clone" ]; then
+      : # handled after parsing; see bootstrap block below
+    else
+      echo "unknown option: $arg (try --help)" >&2
+      exit 2
+    fi
     ;;
   esac
 done
@@ -53,40 +71,32 @@ skip() { printf '    %s·%s %s\n' "$DIM" "$OFF" "$1"; }
 warn() { printf '    %s!%s %s\n' "$YEL" "$OFF" "$1"; }
 bad() { printf '    %s✗%s %s\n' "$RED" "$OFF" "$1"; }
 
-# ── the dependencies ─────────────────────────────────────────────────────────
-# cmd | group | package (Arch) | why this config wants it
-#
-# core     -> the editor itself does not work properly without it
-# optional -> one feature only; a missing one is not a broken editor
-DEPS=(
-  "nvim|core|neovim|the editor itself"
-  "git|core|git|clones plugins; gitsigns; the dashboard's git branch"
-  "rg|core|ripgrep|telescope live_grep"
-  "fd|core|fd|telescope find_files"
-  "node|core|nodejs|LSP servers and markdown-preview's build step"
-  "python3|core|python|bin/livehtml (HTML preview), pyright"
-  "gcc|core|gcc|treesitter parsers, native plugin builds"
-  "make|core|make|native plugin builds"
-  "curl|core|curl|downloading parsers and language servers"
-  "unzip|core|unzip|mason unpacks its packages with it"
-  "wl-copy|core|wl-clipboard|clipboard sync (Settings → Editor)"
-  "typst|optional|typst|Typst live preview (<leader>tv)"
-  "zathura|optional|zathura|PDF viewer for LaTeX and Typst"
-  "sioyek|optional|sioyek-git|alternative PDF viewer (Settings → Viewers)"
-  "latexmk|optional|texlive-binextra|continuous LaTeX; bin/texbuild covers for it"
-  "biber|optional|texlive-bibtexextra|bibliographies with biblatex"
-  "qutebrowser|optional|qutebrowser|the chrome-less preview window (bin/mdpreview)"
-  "firefox|optional|firefox|fallback for bin/mdpreview"
-  "xdg-open|optional|xdg-utils|opens previews in your real browser"
-  "lazygit|optional|lazygit|git TUI"
-)
-
-# Helper scripts that ship inside this config.
-SCRIPTS=(livehtml mdpreview texbuild)
-
-# Packages that are not a command we can look for. Zathura's PDF rendering
-# backend ships separately; without one zathura opens a black window.
-EXTRA_PKGS=(zathura-pdf-mupdf)
+# ── bootstrap: clone this repo, then run the installer inside it ──────────────
+# Clones into ~/.config/nvim (pulls instead if already there) and re-executes
+# this script from the fresh copy, so pinned plugin revisions in lazy-lock.json
+# are what get installed.
+if [ "${1:-}" = "clone" ]; then
+  shift
+  TARGET_DIR="${HOME}/.config/nvim"
+  if [ -d "$TARGET_DIR/.git" ]; then
+    section "Updating the config"
+    git -C "$TARGET_DIR" pull --ff-only || warn "could not pull — check your network"
+  elif [ -d "$TARGET_DIR" ] && [ -n "$(ls -A "$TARGET_DIR" 2>/dev/null)" ]; then
+    bad "$TARGET_DIR exists and is not empty — aborting"
+    echo "  move or remove it first, or clone manually:" >&2
+    echo "    git clone $REPO_URL $TARGET_DIR" >&2
+    exit 1
+  else
+    section "Cloning $REPO_URL"
+    if ! git clone --depth 1 "$REPO_URL" "$TARGET_DIR"; then
+      bad "could not clone $REPO_URL"
+      echo "  check the URL (NVIM_CONFIG_REPO) and your network, then retry" >&2
+      exit 1
+    fi
+  fi
+  # Re-run the installer from the freshly cloned copy, with the same flags.
+  exec bash "$TARGET_DIR/setup.sh" "$@"
+fi
 
 # ── package manager ─────────────────────────────────────────────────────────
 PM=""
@@ -140,6 +150,40 @@ install_pkgs() { # install_pkgs pkg...
   dnf) $SUDO dnf install -y "$@" ;;
   esac
 }
+
+# ── the dependencies ─────────────────────────────────────────────────────────
+# cmd | group | package (Arch) | why this config wants it
+# core     -> the editor itself does not work properly without it
+# optional -> one feature only; a missing one is not a broken editor
+DEPS=(
+  "nvim|core|neovim|the editor itself"
+  "git|core|git|clones plugins; gitsigns; the dashboard's git branch"
+  "rg|core|ripgrep|telescope live_grep"
+  "fd|core|fd|telescope find_files"
+  "node|core|nodejs|LSP servers and markdown-preview's build step"
+  "python3|core|python|bin/livehtml (HTML preview), pyright"
+  "gcc|core|gcc|treesitter parsers, native plugin builds"
+  "make|core|make|native plugin builds"
+  "curl|core|curl|downloading parsers and language servers"
+  "unzip|core|unzip|mason unpacks its packages with it"
+  "wl-copy|core|wl-clipboard|clipboard sync (Settings → Editor)"
+  "typst|optional|typst|Typst live preview (<leader>tv)"
+  "zathura|optional|zathura|PDF viewer for LaTeX and Typst"
+  "sioyek|optional|sioyek-git|alternative PDF viewer (Settings → Viewers)"
+  "latexmk|optional|texlive-binextra|continuous LaTeX; bin/texbuild covers for it"
+  "biber|optional|texlive-bibtexextra|bibliographies with biblatex"
+  "qutebrowser|optional|qutebrowser|the chrome-less preview window (bin/mdpreview)"
+  "firefox|optional|firefox|fallback for bin/mdpreview"
+  "xdg-open|optional|xdg-utils|opens previews in your real browser"
+  "lazygit|optional|lazygit|git TUI"
+)
+
+# Helper scripts that ship inside this config.
+SCRIPTS=(livehtml mdpreview texbuild)
+
+# Packages that are not a command we can look for. Zathura's PDF rendering
+# backend ships separately; without one zathura opens a black window.
+EXTRA_PKGS=(zathura-pdf-mupdf)
 
 # ── 1 + 2. tools ─────────────────────────────────────────────────────────────
 # Everything is checked first so --check can print the whole story, then the
@@ -216,6 +260,7 @@ fi
 
 # ── 3. the helper scripts ────────────────────────────────────────────────────
 section "Helper scripts (bin/)"
+CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for name in "${SCRIPTS[@]}"; do
   src="$CONFIG_DIR/bin/$name"
   if [ ! -e "$src" ]; then
@@ -234,7 +279,7 @@ for name in "${SCRIPTS[@]}"; do
   fi
 done
 case ":$PATH:" in
-*":$BIN_DIR:"*) : ;;
+*:$BIN_DIR:*) : ;;
 *) warn "$BIN_DIR is not on your PATH — add it to your shell rc to use mdpreview/texbuild outside Neovim" ;;
 esac
 
@@ -252,8 +297,8 @@ elif [ "$MODE" = check ]; then
   fi
 else
   if [ -f "$CONFIG_DIR/lazy-lock.json" ]; then
-    # restore = install exactly the revisions in lazy-lock.json, which is what
-    # makes two machines behave the same
+    # restore = install exactly the revisions pinned in lazy-lock.json, which is
+    # what makes two machines behave the same
     ok "restoring the revisions pinned in lazy-lock.json"
     nvim --headless "+Lazy! restore" +qa 2>/dev/null || warn "lazy restore reported a problem — run :Lazy inside Neovim"
   else

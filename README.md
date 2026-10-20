@@ -55,11 +55,14 @@ plugin/                 rtp plugins, auto-loaded before lua/
 | a **helper script** | put it in `bin/`, call it as `require("config.bin").path("name")`, and add its name to `SCRIPTS` in `setup.sh`. |
 | a **snippet** | `snippets/<lang>.lua` — see `snippets/README.md`. |
 
-## Reproducing on another machine
+## Reproducing / fresh install
 
 ```sh
-# copy or clone the config first, e.g.
-#   git clone <your-remote> ~/.config/nvim
+# One-liner — clones repo, installs dependencies, links scripts, restores plugins
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/tonycth7/nvim/main/setup.sh)" clone
+
+# Or manually (after this reads the repo already exists):
+git clone https://github.com/tonycth7/nvim.git ~/.config/nvim
 cd ~/.config/nvim
 ./setup.sh
 ```
