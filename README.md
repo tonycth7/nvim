@@ -67,15 +67,16 @@ cd ~/.config/nvim
 ./setup.sh
 ```
 
-### GitHub Copilot (premium — your student plan)
+### GitHub Copilot (disabled by default)
 
-This config includes [`github/copilot.vim`](https://github.com/github/copilot.vim).
-You already have `gh` CLI logged in as `tonycth7`, so authentication reuses that.
+Copilot is **disabled by default** — the plugin spec lives in
+`lua/plugins/coding.lua` but is commented out. To enable when you have a
+GitHub Copilot subscription:
 
-**One-time setup** (first `nvim` launch):
-1. `gh auth login` — login via keyring (you’re already logged in as `tonycth7`).
-2. In Neovim: `:Copilot auth` — follow the browser link to authorize Copilot.
-3. Toggle/enable anytime with `<leader>ci` / `<leader>cd` / `<leader>ct`.
+1. Uncomment the Copilot block in `lua/plugins/coding.lua`.
+2. Run `gh auth login` (already logged in as `tonycth7`).
+3. In Neovim: `:Copilot auth` — follow the browser link to authorize.
+4. Toggle/enable anytime with `<leader>ci` / `<leader>cd` / `<leader>ct`.
 
 ---
 
