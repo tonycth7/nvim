@@ -2,7 +2,7 @@
 return {
   -- GitHub Copilot for Neovim (needs `gh auth login` for auth)
   {
-    "github/copilot.nvim",
+    "github/copilot.vim",
     build = ":CopilotAuth",  -- ensures authentication step runs
     event = "InsertEnter",  -- start when entering Insert mode
     keys = {

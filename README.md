@@ -69,7 +69,7 @@ cd ~/.config/nvim
 
 ### GitHub Copilot (premium — your student plan)
 
-This config includes [`github/copilot.nvim`](https://github.com/github/copilot.nvim).
+This config includes [`github/copilot.vim`](https://github.com/github/copilot.vim).
 You already have `gh` CLI logged in as `tonycth7`, so authentication reuses that.
 
 **One-time setup** (first `nvim` launch):
