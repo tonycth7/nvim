@@ -67,6 +67,18 @@ cd ~/.config/nvim
 ./setup.sh
 ```
 
+### GitHub Copilot (premium — your student plan)
+
+This config includes [`github/copilot.nvim`](https://github.com/github/copilot.nvim).
+You already have `gh` CLI logged in as `tonycth7`, so authentication reuses that.
+
+**One-time setup** (first `nvim` launch):
+1. `gh auth login` — login via keyring (you’re already logged in as `tonycth7`).
+2. In Neovim: `:Copilot auth` — follow the browser link to authorize Copilot.
+3. Toggle/enable anytime with `<leader>ci` / `<leader>cd` / `<leader>ct`.
+
+---
+
 1. checks every tool the config shells out to (the table mirrors
    `:checkhealth config`) and installs what is missing — Arch names, with
    `apt`/`dnf` equivalents where they differ;

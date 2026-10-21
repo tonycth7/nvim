@@ -127,8 +127,10 @@ banner() {
   local t="$B"
   printf '\n'
   if [ "$UTF" = 1 ]; then
-    printf '   %s█▄ █%s  %s█ █%s  %s█%s  %s█▀▄▀█%s    %ssetup%s\n' "$ACC" "$OFF" "$PUR" "$OFF" "$PNK" "$OFF" "$GRN" "$OFF" "$DIM" "$OFF"
-    printf '   %s█ ▀█%s  %s▀▄▀%s  %s█%s  %s█ ▀ █%s    %sone command, whole editor%s\n' "$ACC" "$OFF" "$PUR" "$OFF" "$PNK" "$OFF" "$GRN" "$OFF" "$DIM" "$OFF"
+    printf '   %s╭──────────────────────────────────────────────────╮%s\n' "$ACC" "$OFF"
+    printf '   %s│%s  %s█▄ █%s  %s█ █%s  %s█%s  %s█▀▄▀█%s   nvim setup   %s│%s\n' "$ACC" "$OFF" "$ACC" "$OFF" "$PUR" "$OFF" "$PNK" "$OFF" "$GRN" "$OFF" "$ACC" "$OFF"
+    printf '   %s│%s  %s█ ▀█%s  %s▀▄▀%s  %s█%s  %s█ ▀ █%s  one command, whole editor%s│%s\n' "$ACC" "$OFF" "$ACC" "$OFF" "$PUR" "$OFF" "$PNK" "$OFF" "$GRN" "$OFF" "$ACC" "$OFF"
+    printf '   %s╰──────────────────────────────────────────────────╯%s\n' "$ACC" "$OFF"
   else
     printf '   %sNVIM setup%s - one command, whole editor\n' "$t" "$OFF"
   fi
